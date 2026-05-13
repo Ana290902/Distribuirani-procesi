@@ -31,6 +31,8 @@ Datoteke dodane za projekt:
 Minimalno prilagodena datoteka:
 - LockTester.java
   U njoj su ostavljene samo dvije opcije: Singhal i Maekawa.
+- IntLinkedList.java
+- Symbols
 
 Pokretanje na Linuxu
 --------------------
@@ -57,7 +59,7 @@ Pokretanje na Linuxu
    java LockTester TestMaekawa 0 3 Maekawa
 
    java LockTester TestMaekawa 1 3 Maekawa
-   
+
    java LockTester TestMaekawa 2 3 Maekawa
 
 Napomena
