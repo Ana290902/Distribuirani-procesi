@@ -35,7 +35,7 @@ Minimalno prilagodena datoteka:
 Pokretanje na Linuxu
 --------------------
 1. Udi u mapu projekta:
-   cd DP_Mutex_Clean
+   Distribuirani-procesi
 
 2. Prevedi sve datoteke:
    javac *.java
@@ -44,14 +44,20 @@ Pokretanje na Linuxu
    java NameServer
 
 4. Za Singhalov algoritam otvori 3 nova terminala i pokreni:
+
    java LockTester TestSinghal 0 3 Singhal
+
    java LockTester TestSinghal 1 3 Singhal
+
    java LockTester TestSinghal 2 3 Singhal
 
 5. Za Maekawin algoritam prvo zaustavi sve procese i NameServer s CTRL+C,
    zatim ponovno pokreni NameServer i u 3 terminala pokreni:
+
    java LockTester TestMaekawa 0 3 Maekawa
+
    java LockTester TestMaekawa 1 3 Maekawa
+   
    java LockTester TestMaekawa 2 3 Maekawa
 
 Napomena
