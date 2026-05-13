@@ -29,10 +29,10 @@ Datoteke dodane za projekt:
 - MaekawaMutex.java
 
 Minimalno prilagodena datoteka:
-- LockTester.java
+- LockTester.java:
   U njoj su ostavljene samo dvije opcije: Singhal i Maekawa.
 - IntLinkedList.java
-- Symbols
+- Symbols.java
 
 Pokretanje na Linuxu
 --------------------
