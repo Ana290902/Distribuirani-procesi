@@ -8,7 +8,7 @@ import java.util.*;
 public class MaekawaMutex extends Process implements Lock {
     LamportClock c = new LamportClock();
 
-    private IntLinkedList quorum = new IntLinkedList();
+    private final IntLinkedList quorum = new IntLinkedList();
     private boolean[] replyReceived;
     private int replyCount = 0;
 
@@ -22,9 +22,10 @@ public class MaekawaMutex extends Process implements Lock {
     /* Cvor kao arbitar moze biti zakljucan samo za jedan zahtjev. */
     private int lockedFor = -1;
     private int lockedTs = Symbols.Infinity;
+    private boolean inquireSent = false;
 
     /* Red cekanja zahtjeva za koje ovaj proces kao arbitar jos nije dao dopustenje. */
-    private PriorityQueue<Request> waitingQ = new PriorityQueue<Request>();
+    private PriorityQueue<Request> waitingQ = new PriorityQueue<>();
 
     public MaekawaMutex(Linker initComm) {
         super(initComm);
@@ -32,6 +33,7 @@ public class MaekawaMutex extends Process implements Lock {
         buildQuorum();
     }
 
+    @Override
     public synchronized void requestCS() {
         requesting = true;
         executing = false;
@@ -57,6 +59,7 @@ public class MaekawaMutex extends Process implements Lock {
         executing = true;
     }
 
+    @Override
     public synchronized void releaseCS() {
         executing = false;
         myts = Symbols.Infinity;
@@ -72,43 +75,44 @@ public class MaekawaMutex extends Process implements Lock {
         return replyCount == quorum.size();
     }
 
+    @Override
     public synchronized void handleMsg(Msg m, int src, String tag) {
         StringTokenizer st = new StringTokenizer(m.getMessage());
 
-        if (tag.equals("maekawa_request")) {
-            int ts = Integer.parseInt(st.nextToken());
-            int pid = Integer.parseInt(st.nextToken());
-            c.receiveAction(src, ts);
-            handleRequest(pid, ts);
-        } else if (tag.equals("maekawa_reply")) {
-            int ts = Integer.parseInt(st.nextToken());
-            c.receiveAction(src, ts);
-            if (!replyReceived[src]) {
-                replyReceived[src] = true;
-                replyCount++;
+        switch (tag) {
+            case "maekawa_request" -> {
+                int ts = Integer.parseInt(st.nextToken());
+                int pid = Integer.parseInt(st.nextToken());
+                c.receiveAction(src, ts);
+                handleRequest(pid, ts);
             }
-            if (okayCS()) notifyAll();
-        } else if (tag.equals("maekawa_release")) {
-            int ts = Integer.parseInt(st.nextToken());
-            int pid = Integer.parseInt(st.nextToken());
-            c.receiveAction(src, ts);
-            handleRelease(pid);
-        } else if (tag.equals("maekawa_failed")) {
-            failedReceived = true;
-            if (pendingInquireFrom != -1) {
-                int tmp = pendingInquireFrom;
-                pendingInquireFrom = -1;
-                handleInquire(tmp);
+            case "maekawa_reply" -> {
+                int ts = Integer.parseInt(st.nextToken());
+                c.receiveAction(src, ts);
+                if (!replyReceived[src]) {
+                    replyReceived[src] = true;
+                    replyCount++;
+                }
+                if (okayCS()) notifyAll();
             }
-        } else if (tag.equals("maekawa_inquire")) {
-            int ts = Integer.parseInt(st.nextToken());
-            c.receiveAction(src, ts);
-            handleInquire(src);
-        } else if (tag.equals("maekawa_yield")) {
-            int ts = Integer.parseInt(st.nextToken());
-            int pid = Integer.parseInt(st.nextToken());
-            c.receiveAction(src, ts);
-            handleYield(pid);
+            case "maekawa_release" -> {
+                int ts = Integer.parseInt(st.nextToken());
+                int pid = Integer.parseInt(st.nextToken());
+                c.receiveAction(src, ts);
+                handleRelease(pid);
+            }
+            case "maekawa_failed" -> markFailed();
+            case "maekawa_inquire" -> {
+                int ts = Integer.parseInt(st.nextToken());
+                c.receiveAction(src, ts);
+                handleInquire(src);
+            }
+            case "maekawa_yield" -> {
+                int ts = Integer.parseInt(st.nextToken());
+                int pid = Integer.parseInt(st.nextToken());
+                c.receiveAction(src, ts);
+                handleYield(pid);
+            }
         }
     }
 
@@ -131,12 +135,31 @@ public class MaekawaMutex extends Process implements Lock {
 
         /* Ako neki vec postojeci zahtjev ima prednost pred novim zahtjevom,
            novi zahtjev dobiva FAILED. Inace se pokusava povuci ranije dano dopustenje. */
-        if (current.compareTo(r) < 0 || (bestWaiting != null && bestWaiting.compareTo(r) < 0)) {
-            if (pid != myId) sendMsg(pid, "maekawa_failed", c.getValue(), myId);
-            else failedReceived = true;
+        if (bestWaiting != null && bestWaiting.compareTo(current) < 0) {
+            if (!inquireSent) {
+                inquireSent = true;
+
+                if (lockedFor != myId) {
+                    sendMsg(lockedFor, "maekawa_inquire", c.getValue(), myId);
+                } else {
+                    handleInquire(myId);
+                }
+            }
+
+            if (bestWaiting.pid != pid) {
+                if (pid != myId) {
+                    sendMsg(pid, "maekawa_failed", c.getValue(), myId);
+                } else {
+                    markFailed();
+                }
+            }
+
         } else {
-            if (lockedFor != myId) sendMsg(lockedFor, "maekawa_inquire", c.getValue(), myId);
-            else handleInquire(myId);
+            if (pid != myId) {
+                sendMsg(pid, "maekawa_failed", c.getValue(), myId);
+            } else {
+                markFailed();
+            }
         }
     }
 
@@ -156,11 +179,14 @@ public class MaekawaMutex extends Process implements Lock {
     }
 
     private void handleYield(int pid) {
-        if (lockedFor != -1) {
-            waitingQ.add(new Request(lockedFor, lockedTs));
-        }
+        if (pid != lockedFor) return;
+
+        waitingQ.add(new Request(lockedFor, lockedTs));
+
         lockedFor = -1;
         lockedTs = Symbols.Infinity;
+        inquireSent = false;
+
         grantNextFromQueue();
     }
 
@@ -172,6 +198,7 @@ public class MaekawaMutex extends Process implements Lock {
         if (lockedFor == pid) {
             lockedFor = -1;
             lockedTs = Symbols.Infinity;
+            inquireSent = false;
             grantNextFromQueue();
         } else {
             removeFromQueue(pid);
@@ -185,9 +212,10 @@ public class MaekawaMutex extends Process implements Lock {
         }
     }
 
-    private void grant(Request r) {
+    private synchronized void grant(Request r) {
         lockedFor = r.pid;
         lockedTs = r.ts;
+        inquireSent = false;
 
         if (r.pid == myId) {
             if (!replyReceived[myId]) {
@@ -200,8 +228,18 @@ public class MaekawaMutex extends Process implements Lock {
         }
     }
 
+    private void markFailed() {
+        failedReceived = true;
+
+        if (pendingInquireFrom != -1) {
+            int tmp = pendingInquireFrom;
+            pendingInquireFrom = -1;
+            handleInquire(tmp);
+        }
+    }
+
     private void removeFromQueue(int pid) {
-        PriorityQueue<Request> newQ = new PriorityQueue<Request>();
+        PriorityQueue<Request> newQ = new PriorityQueue<>();
         while (!waitingQ.isEmpty()) {
             Request r = waitingQ.poll();
             if (r.pid != pid) newQ.add(r);
@@ -210,36 +248,58 @@ public class MaekawaMutex extends Process implements Lock {
     }
 
     private void buildQuorum() {
-        if (N == 3) {
-            int[][] q = { {0,1}, {1,2}, {0,2} };
-            fillQuorum(q[myId]);
-        } else if (N == 7) {
-            int[][] q = {
-                {0,1,2}, {0,3,4}, {0,5,6}, {1,3,5},
-                {1,4,6}, {2,3,6}, {2,4,5}
-            };
-            fillQuorum(q[myId]);
-        } else {
-            int root = (int)Math.sqrt(N);
-            if (root * root == N) {
-                int row = myId / root;
-                int col = myId % root;
-                for (int j = 0; j < root; j++) quorum.add(row * root + j);
-                for (int i = 0; i < root; i++) quorum.add(i * root + col);
-            } else {
-                /* Sigurna rezervna varijanta: puni kvorum. To je ispravno,
-                   ali nema sqrt(N) slozenost. Za demonstraciju Maekawe koristi N=3 ili N=7. */
-                for (int i = 0; i < N; i++) quorum.add(i);
+        switch (N) {
+            case 3 -> {
+                int[][] q3 = { {0,1}, {1,2}, {0,2} };
+                fillQuorum(q3[myId]);
+            }
+            case 7 -> {
+                int[][] q7 = {
+                    {0, 1, 2}, // Q0
+                    {1, 3, 5}, // Q1
+                    {2, 3, 6}, // Q2
+                    {0, 3, 4}, // Q3
+                    {1, 4, 6}, // Q4
+                    {2, 4, 5}, // Q5
+                    {0, 5, 6}  // Q6
+                };
+
+                fillQuorum(q7[myId]);
+            }
+            default -> {
+                int root = (int)Math.sqrt(N);
+                if (root * root == N) {
+                    int row = myId / root;
+                    int col = myId % root;
+
+                    for (int j = 0; j < root; j++) {
+                        int pid = row * root + j;
+                        if (!quorum.containsInt(pid)) quorum.addInt(pid);
+                    }
+
+                    for (int i = 0; i < root; i++) {
+                        int pid = i * root + col;
+                        if (!quorum.containsInt(pid)) quorum.addInt(pid);
+                    }
+                } else {
+                    /* Sigurna rezervna varijanta: puni kvorum. To je ispravno,
+                       ali nema sqrt(N) slozenost. Za demonstraciju Maekawe koristi N=3 ili N=7. */
+                    for (int i = 0; i < N; i++) quorum.addInt(i);
+                }
             }
         }
         Util.println("Maekawa quorum for " + myId + " = " + quorum.toString());
     }
 
     private void fillQuorum(int[] arr) {
-        for (int i = 0; i < arr.length; i++) quorum.add(arr[i]);
+        for (int i = 0; i < arr.length; i++) {
+            if (!quorum.containsInt(arr[i])) {
+                quorum.addInt(arr[i]);
+            }
+        }
     }
 
-    static class Request implements Comparable {
+    static class Request implements Comparable<Request> {
         int pid;
         int ts;
 
@@ -248,8 +308,8 @@ public class MaekawaMutex extends Process implements Lock {
             this.ts = ts;
         }
 
-        public int compareTo(Object o) {
-            Request r = (Request)o;
+        @Override
+        public int compareTo(Request r) {
             if (this.ts != r.ts) return this.ts - r.ts;
             return this.pid - r.pid;
         }
