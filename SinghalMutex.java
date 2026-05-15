@@ -1,96 +1,122 @@
-import java.util.*;
+// Source code is decompiled from a .class file using FernFlower decompiler (from Intellij IDEA).
+import java.util.StringTokenizer;
+import java.util.TreeSet;
 
-/*
- * Singhalov dinamicki algoritam za distribuirano medjusobno iskljucivanje.
- * Implementacija koristi istu programsku infrastrukturu kao kodovi iz skripte:
- * Process, Lock, Linker, Msg, ListenerThread i LamportClock.
- */
 public class SinghalMutex extends Process implements Lock {
-    LamportClock c = new LamportClock();
+   LamportClock c = new LamportClock();
+   private boolean requesting = false;
+   private boolean executing = false;
+   private int myts = -1;
+   private TreeSet<Integer> requestSet = new TreeSet();
+   private TreeSet<Integer> informSet = new TreeSet();
 
-    private boolean requesting = false;
-    private boolean executing = false;
-    private int myts = Symbols.Infinity;
+   public SinghalMutex(Linker var1) {
+      super(var1);
 
-    /* R_i: procesi od kojih moram dobiti dopustenje. Vlastiti proces se ne sprema
-       jer je vlastito dopustenje implicitno. */
-    private TreeSet<Integer> requestSet = new TreeSet<Integer>();
+      for(int var2 = 0; var2 < this.myId; ++var2) {
+         this.requestSet.add(var2);
+      }
 
-    /* I_i: procesi kojima dugujem REPLY nakon izlaska iz kriticne sekcije. */
-    private TreeSet<Integer> informSet = new TreeSet<Integer>();
+      this.printSets("INIT");
+   }
 
-    public SinghalMutex(Linker initComm) {
-        super(initComm);
+   public synchronized void requestCS() {
+      this.requesting = true;
+      this.c.tick();
+      this.myts = this.c.getValue();
+      this.printSets("BEFORE requestCS");
+      Integer[] var1 = (Integer[])this.requestSet.toArray(new Integer[0]);
 
-        /* Inicijalizacija prema staircase obrascu iz algoritma.
-           U knjizi je R_i = {S_1, ..., S_i}; ovdje su identifikatori 0..N-1,
-           a vlastito dopustenje je implicitno, pa spremamo samo 0..myId-1. */
-        for (int j = 0; j < myId; j++) requestSet.add(j);
-    }
+      for(int var2 = 0; var2 < var1.length; ++var2) {
+         int var3 = var1[var2];
+         this.sendMsg(var3, "singhal_request", this.myts, this.myId);
+      }
 
-    public synchronized void requestCS() {
-        requesting = true;
-        c.tick();
-        myts = c.getValue();
+      this.printSets("AFTER sending REQUESTs");
 
-        Integer[] targets = requestSet.toArray(new Integer[0]);
-        for (int k = 0; k < targets.length; k++) {
-            sendMsg(targets[k].intValue(), "singhal_request", myts, myId);
-        }
+      while(!this.requestSet.isEmpty()) {
+         this.myWait();
+      }
 
-        while (!requestSet.isEmpty()) myWait();
+      this.requesting = false;
+      this.executing = true;
+      this.printSets("ENTER CS");
+   }
 
-        requesting = false;
-        executing = true;
-    }
+   public synchronized void releaseCS() {
+      this.executing = false;
+      this.myts = -1;
+      this.printSets("BEFORE releaseCS");
+      Integer[] var1 = (Integer[])this.informSet.toArray(new Integer[0]);
 
-    public synchronized void releaseCS() {
-        executing = false;
-        myts = Symbols.Infinity;
+      for(int var2 = 0; var2 < var1.length; ++var2) {
+         int var3 = var1[var2];
+         this.informSet.remove(var3);
+         this.sendMsg(var3, "singhal_reply", this.c.getValue(), this.myId);
+         if (var3 != this.myId) {
+            this.requestSet.add(var3);
+         }
 
-        Integer[] targets = informSet.toArray(new Integer[0]);
-        for (int k = 0; k < targets.length; k++) {
-            int pid = targets[k].intValue();
-            informSet.remove(pid);
-            sendMsg(pid, "singhal_reply", c.getValue(), myId);
-            if (pid != myId) requestSet.add(pid);
-        }
-    }
+         this.printSets("releaseCS: sent deferred REPLY to " + var3);
+      }
 
-    private boolean myRequestHasPriority(int otherTs, int otherId) {
-        if (myts == Symbols.Infinity) return false;
-        return (myts < otherTs) || ((myts == otherTs) && (myId < otherId));
-    }
+      this.printSets("AFTER releasing CS");
+   }
 
-    public synchronized void handleMsg(Msg m, int src, String tag) {
-        StringTokenizer st = new StringTokenizer(m.getMessage());
+   private boolean myRequestHasPriority(int var1, int var2) {
+      if (this.myts == -1) {
+         return false;
+      } else {
+         return this.myts < var1 || this.myts == var1 && this.myId < var2;
+      }
+   }
 
-        if (tag.equals("singhal_request")) {
-            int ts = Integer.parseInt(st.nextToken());
-            int sender = Integer.parseInt(st.nextToken());
-            c.receiveAction(src, ts);
-
-            if (requesting) {
-                if (myRequestHasPriority(ts, sender)) {
-                    informSet.add(sender);
-                } else {
-                    sendMsg(sender, "singhal_reply", c.getValue(), myId);
-                    if (!requestSet.contains(sender)) {
-                        requestSet.add(sender);
-                        sendMsg(sender, "singhal_request", myts, myId);
-                    }
-                }
-            } else if (executing) {
-                informSet.add(sender);
+   public synchronized void handleMsg(Msg var1, int var2, String var3) {
+      StringTokenizer var4 = new StringTokenizer(var1.getMessage());
+      if (var3.equals("singhal_request")) {
+         int var5 = Integer.parseInt(var4.nextToken());
+         int var6 = Integer.parseInt(var4.nextToken());
+         this.c.receiveAction(var2, var5);
+         if (this.requesting) {
+            if (this.myRequestHasPriority(var5, var6)) {
+               this.informSet.add(var6);
+               this.printSets("REQUEST from " + var6 + " deferred into informSet");
             } else {
-                if (sender != myId) requestSet.add(sender);
-                sendMsg(sender, "singhal_reply", c.getValue(), myId);
+               this.sendMsg(var6, "singhal_reply", this.c.getValue(), this.myId);
+               if (!this.requestSet.contains(var6)) {
+                  this.requestSet.add(var6);
+                  this.printSets("REQUEST from " + var6 + ": sent REPLY, added sender to requestSet");
+                  this.sendMsg(var6, "singhal_request", this.myts, this.myId);
+               } else {
+                  this.printSets("REQUEST from " + var6 + ": sent REPLY, sender already in requestSet");
+               }
             }
-        } else if (tag.equals("singhal_reply")) {
-            int ts = Integer.parseInt(st.nextToken());
-            c.receiveAction(src, ts);
-            requestSet.remove(src);
-            if (requestSet.isEmpty()) notifyAll();
-        }
-    }
+         } else if (this.executing) {
+            this.informSet.add(var6);
+            this.printSets("REQUEST from " + var6 + " while executing: added to informSet");
+         } else {
+            if (var6 != this.myId) {
+               this.requestSet.add(var6);
+            }
+
+            this.sendMsg(var6, "singhal_reply", this.c.getValue(), this.myId);
+            this.printSets("REQUEST from " + var6 + " while idle: sent REPLY and added to requestSet");
+         }
+      } else if (var3.equals("singhal_reply")) {
+         int var7 = Integer.parseInt(var4.nextToken());
+         this.c.receiveAction(var2, var7);
+         this.requestSet.remove(var2);
+         this.printSets("REPLY from " + var2 + ": removed from requestSet");
+         if (this.requestSet.isEmpty()) {
+            this.notifyAll();
+         }
+      }
+
+   }
+
+   private void printSets(String var1) {
+      int var10001 = this.myId;
+      System.out.println("P" + var10001 + " [" + var1 + "] requestSet=" + this.requestSet.toString() + " informSet=" + this.informSet.toString());
+      System.out.flush();
+   }
 }
