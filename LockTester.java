@@ -3,7 +3,7 @@ public class LockTester {
         Linker comm = null;
         try {
             if (args.length < 4) {
-                System.out.println("Usage: java LockTester <baseName> <myId> <numProc> <Singhal|Maekawa>");
+                System.out.println("Usage: java LockTester <baseName> <myId> <numProc> <Singhal|Maekawa|SuzukiKasami|Raymond> [raymondInitialParent]");
                 return;
             }
 
@@ -18,6 +18,11 @@ public class LockTester {
             switch (algorithm) {
                 case "Singhal" -> lock = new SinghalMutex(comm);
                 case "Maekawa" -> lock = new MaekawaMutex(comm);
+                case "SuzukiKasami" -> lock = new SuzukiKasamiMutex(comm, 0); // pocetni drzatelj zetona = P0
+                case "Raymond" -> {
+                    int initialParent = args.length > 4 ? Integer.parseInt(args[4]) : -1;
+                    lock = new RaymondMutex(comm, initialParent); // -1 = ovaj proces je korijen
+                }
                 default -> {
                     System.out.println("Unknown algorithm: " + algorithm);
                     System.out.println("Allowed values: Singhal, Maekawa");
