@@ -1,4 +1,7 @@
-// Source code is decompiled from a .class file using FernFlower decompiler (from Intellij IDEA).
+// Teorijski R_i sadrži i S_i, a I_i inicijalno sadrži S_i,
+// ali se self u implementaciji ne pohranjuje jer
+// lokalno dopuštenje ne zahtijeva mrežnu komunikaciju.
+
 import java.util.StringTokenizer;
 import java.util.TreeSet;
 
@@ -22,14 +25,21 @@ public class SinghalMutex extends Process implements Lock {
 
    public synchronized void requestCS() {
       this.requesting = true;
+
       this.c.tick();
       this.myts = this.c.getValue();
-      this.printSets("BEFORE requestCS");
-      Integer[] var1 = (Integer[])this.requestSet.toArray(new Integer[0]);
 
-      for(int var2 = 0; var2 < var1.length; ++var2) {
-         int var3 = var1[var2];
-         this.sendMsg(var3, "singhal_request", this.myts, this.myId);
+      this.printSets("BEFORE requestCS");
+      Integer[] destinations =
+        this.requestSet.toArray(new Integer[0]);
+
+      for (int destination : destinations) {
+         this.sendMsg(
+            destination,
+            "singhal_request",
+            this.myts,
+            this.myId
+         );
       }
 
       this.printSets("AFTER sending REQUESTs");

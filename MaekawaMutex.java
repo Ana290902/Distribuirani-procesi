@@ -266,27 +266,6 @@ public class MaekawaMutex extends Process implements Lock {
 
                 fillQuorum(q7[myId]);
             }
-            default -> {
-                int root = (int)Math.sqrt(N);
-                if (root * root == N) {
-                    int row = myId / root;
-                    int col = myId % root;
-
-                    for (int j = 0; j < root; j++) {
-                        int pid = row * root + j;
-                        if (!quorum.containsInt(pid)) quorum.addInt(pid);
-                    }
-
-                    for (int i = 0; i < root; i++) {
-                        int pid = i * root + col;
-                        if (!quorum.containsInt(pid)) quorum.addInt(pid);
-                    }
-                } else {
-                    /* Sigurna rezervna varijanta: puni kvorum. To je ispravno,
-                       ali nema sqrt(N) slozenost. Za demonstraciju Maekawe koristi N=3 ili N=7. */
-                    for (int i = 0; i < N; i++) quorum.addInt(i);
-                }
-            }
         }
         Util.println("Maekawa quorum for " + myId + " = " + quorum.toString());
     }
