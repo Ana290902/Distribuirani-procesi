@@ -13,11 +13,11 @@ public class SinghalMutex extends Process implements Lock {
    private TreeSet<Integer> requestSet = new TreeSet();
    private TreeSet<Integer> informSet = new TreeSet();
 
-   public SinghalMutex(Linker var1) {
-      super(var1);
+   public SinghalMutex(Linker initComm) {
+      super(initComm);
 
-      for(int var2 = 0; var2 < this.myId; ++var2) {
-         this.requestSet.add(var2);
+      for (int processId = 0; processId < this.myId; processId++) {
+         this.requestSet.add(processId);
       }
 
       this.printSets("INIT");
@@ -57,19 +57,19 @@ public class SinghalMutex extends Process implements Lock {
       this.executing = false;
       this.myts = -1;
       this.printSets("BEFORE releaseCS");
-      Integer[] var1 = (Integer[])this.informSet.toArray(new Integer[0]);
+      Integer[] informedProcesses = (Integer[])this.informSet.toArray(new Integer[0]);
 
-      for(int var2 = 0; var2 < var1.length; ++var2) {
-         int var3 = var1[var2];
-         this.informSet.remove(var3);
-         this.sendMsg(var3, "singhal_reply", this.c.getValue(), this.myId);
-         if (var3 != this.myId) {
-            this.requestSet.add(var3);
-         }
+      for (int processId : informedProcesses) {
+         this.informSet.remove(processId);
+         this.sendMsg(
+            processId,
+            "singhal_reply",
+            this.c.getValue(),
+            this.myId
+         );
 
-         this.printSets("releaseCS: sent deferred REPLY to " + var3);
+         this.requestSet.add(processId);
       }
-
       this.printSets("AFTER releasing CS");
    }
 

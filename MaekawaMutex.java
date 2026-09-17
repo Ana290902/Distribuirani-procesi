@@ -266,6 +266,9 @@ public class MaekawaMutex extends Process implements Lock {
 
                 fillQuorum(q7[myId]);
             }
+            default -> throw new IllegalArgumentException(
+                "Ovaj Maekawa algoritam podržava samo N=3 ili N=7."
+            );
         }
         Util.println("Maekawa quorum for " + myId + " = " + quorum.toString());
     }
